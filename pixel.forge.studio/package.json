@@ -1,0 +1,13 @@
+{
+  "name": "pixel-forge-studio",
+  "version": "1.0.0",
+  "description": "Pixel Forge Studio - Gaming Studio Website, Analytics Engine, and A/B Testing Platform",
+  "scripts": {
+    "start:backend": "cd backend && node server.js",
+    "start:frontend": "cd frontend && npm run dev",
+    "dev": "npm run start:backend"
+  },
+  "keywords": ["game-studio", "react", "ab-testing", "analytics", "express", "sqlite", "cyberpunk"],
+  "author": "Pixel Forge Studio",
+  "license": "ISC"
+}
