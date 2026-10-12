@@ -42,7 +42,7 @@ const allAsync = (sql, params = []) => {
 async function initDatabase() {
   await runAsync(`PRAGMA foreign_keys = ON`);
 
-  // 1. Users table
+  // 1. Users table (with lockout & attempt tracking)
   await runAsync(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,9 +51,19 @@ async function initDatabase() {
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'editor',
       avatar TEXT,
+      failed_attempts INTEGER DEFAULT 0,
+      locked_until DATETIME,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // Migrations for existing users table
+  try {
+    await runAsync(`ALTER TABLE users ADD COLUMN failed_attempts INTEGER DEFAULT 0`);
+  } catch (_) {}
+  try {
+    await runAsync(`ALTER TABLE users ADD COLUMN locked_until DATETIME`);
+  } catch (_) {}
 
   // 2. Games table (Unique title and slug)
   await runAsync(`
@@ -302,19 +312,21 @@ async function seedInitialData() {
   // Check users - No real person photos in avatars
   const userCount = await getAsync(`SELECT COUNT(*) as count FROM users`);
   if (userCount.count === 0) {
-    console.log('Seeding initial admin & editor users (initials avatar, no stock photos)...');
+    console.log('Seeding initial admin & editor users from environment variables or defaults...');
     const salt = bcrypt.genSaltSync(10);
-    const adminPass = bcrypt.hashSync('admin123', salt);
-    const editorPass = bcrypt.hashSync('editor123', salt);
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@pixelforge.io';
+    const adminPass = bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'admin123', salt);
+    const editorEmail = process.env.EDITOR_EMAIL || 'editor@pixelforge.io';
+    const editorPass = bcrypt.hashSync(process.env.EDITOR_PASSWORD || 'editor123', salt);
 
     await runAsync(
-      `INSERT OR IGNORE INTO users (name, email, password_hash, role, avatar) VALUES (?, ?, ?, ?, ?)`,
-      ['CyberAdmin', 'admin@pixelforge.io', adminPass, 'admin', '']
+      `INSERT OR IGNORE INTO users (name, email, password_hash, role, avatar, failed_attempts, locked_until) VALUES (?, ?, ?, ?, ?, 0, NULL)`,
+      ['CyberAdmin', adminEmail, adminPass, 'admin', '']
     );
 
     await runAsync(
-      `INSERT OR IGNORE INTO users (name, email, password_hash, role, avatar) VALUES (?, ?, ?, ?, ?)`,
-      ['NeonEditor', 'editor@pixelforge.io', editorPass, 'editor', '']
+      `INSERT OR IGNORE INTO users (name, email, password_hash, role, avatar, failed_attempts, locked_until) VALUES (?, ?, ?, ?, ?, 0, NULL)`,
+      ['NeonEditor', editorEmail, editorPass, 'editor', '']
     );
   }
 

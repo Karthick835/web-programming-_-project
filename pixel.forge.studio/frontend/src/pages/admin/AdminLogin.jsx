@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Shield, Lock, Mail, ArrowRight, Sparkles, Key, AlertCircle } from 'lucide-react';
+import { Shield, Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 export default function AdminLogin({ onLoginSuccess, onCancel }) {
-  const [email, setEmail] = useState('admin@pixelforge.io');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -15,24 +15,13 @@ export default function AdminLogin({ onLoginSuccess, onCancel }) {
     setLoading(true);
 
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       if (onLoginSuccess) onLoginSuccess();
     } catch (err) {
-      setError(err.response?.data?.error || 'Invalid credentials. Please verify email and password.');
+      setError(err.response?.data?.error || 'Invalid email or password.');
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillCredentials = (role) => {
-    if (role === 'admin') {
-      setEmail('admin@pixelforge.io');
-      setPassword('admin123');
-    } else {
-      setEmail('editor@pixelforge.io');
-      setPassword('editor123');
-    }
-    setError('');
   };
 
   return (
@@ -44,36 +33,12 @@ export default function AdminLogin({ onLoginSuccess, onCancel }) {
           <div className="w-12 h-12 rounded-lg bg-pink-500/20 border border-pink-500/50 flex items-center justify-center mx-auto text-pink-400 shadow-[0_0_20px_rgba(255,0,127,0.3)]">
             <Shield className="w-6 h-6" />
           </div>
-          <h2 className="font-heading text-2xl font-bold text-white">
+          <h2 className="font-heading text-2xl font-bold text-white tracking-wide">
             STAFF HQ ACCESS
           </h2>
           <p className="text-xs text-slate-400 font-mono">
-            JWT Authenticated Mission Control
+            Authenticated Mission Control
           </p>
-        </div>
-
-        {/* Quick Demo Pre-fills */}
-        <div className="bg-slate-950/80 p-3 rounded border border-slate-800 space-y-2">
-          <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
-            <Key className="w-3 h-3 text-cyan-400" />
-            DEMO CREDENTIALS (CLICK TO FILL):
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => fillCredentials('admin')}
-              className="py-1 px-2 text-[10px] font-mono bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-500/40 rounded text-center transition-all"
-            >
-              Admin (Full Control)
-            </button>
-            <button
-              type="button"
-              onClick={() => fillCredentials('editor')}
-              className="py-1 px-2 text-[10px] font-mono bg-pink-950/50 hover:bg-pink-900/60 text-pink-300 border border-pink-500/40 rounded text-center transition-all"
-            >
-              Editor (Content Only)
-            </button>
-          </div>
         </div>
 
         {error && (
@@ -91,6 +56,8 @@ export default function AdminLogin({ onLoginSuccess, onCancel }) {
               <input
                 type="email"
                 required
+                autoComplete="email"
+                placeholder="staff@domain.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-400 font-mono text-xs"
@@ -105,6 +72,8 @@ export default function AdminLogin({ onLoginSuccess, onCancel }) {
               <input
                 type="password"
                 required
+                autoComplete="current-password"
+                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-cyan-400 font-mono text-xs"
@@ -126,7 +95,7 @@ export default function AdminLogin({ onLoginSuccess, onCancel }) {
           <button
             type="button"
             onClick={onCancel}
-            className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors font-mono"
           >
             &larr; Return to Public Website
           </button>

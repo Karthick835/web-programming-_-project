@@ -18,10 +18,26 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Response interceptor: automatically remove expired token on 401
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 && (
+      error.response?.data?.error?.includes('expired') ||
+      error.response?.data?.error?.includes('Session expired')
+    )) {
+      localStorage.removeItem('pf_token');
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const authAPI = {
   login: (email, password) => api.post('/auth/login', { email, password }),
   getProfile: () => api.get('/auth/me'),
-  getUsers: () => api.get('/auth/users')
+  getUsers: () => api.get('/auth/users'),
+  changePassword: (currentPassword, newPassword) =>
+    api.put('/auth/change-password', { currentPassword, newPassword })
 };
 
 export const contentAPI = {
