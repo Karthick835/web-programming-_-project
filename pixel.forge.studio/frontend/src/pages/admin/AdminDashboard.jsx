@@ -28,6 +28,7 @@ export default function AdminDashboard() {
   const [pages, setPages] = useState([]);
   const [deviceData, setDeviceData] = useState(null);
   const [funnel, setFunnel] = useState([]);
+  const [storeClicks, setStoreClicks] = useState({ stores: [], total_clicks: 0 });
   const [realtimeStream, setRealtimeStream] = useState([]);
   const [loading, setLoading] = useState(true);
   const [timelineDays, setTimelineDays] = useState(7);
@@ -44,14 +45,16 @@ export default function AdminDashboard() {
         pageRes,
         devRes,
         funRes,
-        streamRes
+        streamRes,
+        storeRes
       ] = await Promise.all([
         analyticsAPI.getOverview(includeSimulated),
         analyticsAPI.getTimeline(timelineDays, includeSimulated),
         analyticsAPI.getPages(includeSimulated),
         analyticsAPI.getDevices(includeSimulated),
         analyticsAPI.getFunnel(includeSimulated),
-        analyticsAPI.getRealtimeStream(includeSimulated)
+        analyticsAPI.getRealtimeStream(includeSimulated),
+        analyticsAPI.getClicksPerStore(includeSimulated)
       ]);
 
       setOverview(overRes.data);
@@ -60,6 +63,7 @@ export default function AdminDashboard() {
       setDeviceData(devRes.data);
       setFunnel(funRes.data.funnel || []);
       setRealtimeStream(streamRes.data.events || []);
+      setStoreClicks(storeRes?.data || { stores: [], total_clicks: 0 });
     } catch (err) {
       console.error('Failed to load dashboard metrics:', err);
     } finally {
@@ -368,6 +372,54 @@ export default function AdminDashboard() {
         )}
       </div>
 
+
+      {/* Clicks per Store Breakdown */}
+      <div className="cyber-card p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-pixel text-[10px] text-pink-400">TELEMETRY & CONVERSION</div>
+            <h3 className="font-heading text-lg font-bold text-white flex items-center gap-2">
+              Clicks per Store Platform
+            </h3>
+          </div>
+          <div className="text-right">
+            <span className="text-xs font-mono text-slate-400 block">Total Outbound Clicks</span>
+            <span className="text-sm font-mono font-bold text-cyan-400">{storeClicks.total_clicks || 0}</span>
+          </div>
+        </div>
+
+        {storeClicks.stores && storeClicks.stores.length > 0 ? (
+          <div className="space-y-3 pt-2">
+            {storeClicks.stores.map((s, idx) => (
+              <div key={idx} className="p-3 bg-slate-900/60 rounded border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500 text-[10px]">#{idx + 1}</span>
+                    <span className="text-white font-bold">{s.platform}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-400">{s.unique_visitors} unique</span>
+                    <span className="text-cyan-300 font-bold px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30">
+                      {s.total_clicks} clicks ({s.percentage}%)
+                    </span>
+                  </div>
+                </div>
+                {/* Progress bar */}
+                <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-500 to-pink-500 rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, Math.max(2, s.percentage))}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="py-8 text-center text-xs font-mono text-slate-500 bg-slate-900/30 rounded border border-slate-800/60">
+            No store outbound clicks recorded yet. Clicks on Steam, Epic, GOG and other store buttons will appear here.
+          </div>
+        )}
+      </div>
 
       {/* 5. Top Pages & Device/Browser Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

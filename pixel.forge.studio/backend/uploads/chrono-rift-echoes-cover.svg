@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#312e81" />
+      <stop offset="50%" stop-color="#0a0e17" />
+      <stop offset="100%" stop-color="#18181b" />
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+    </pattern>
+    <radialGradient id="glow" cx="50%" cy="45%" r="50%">
+      <stop offset="0%" stop-color="#a855f7" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#a855f7" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="675" fill="url(#bg)" />
+  <rect width="1200" height="675" fill="url(#grid)" />
+  <circle cx="600.0" cy="337.5" r="303.75" fill="url(#glow)" />
+
+  <!-- Frame border -->
+  <rect x="24" y="24" width="1152" height="627" rx="12" fill="none" stroke="#a855f7" stroke-opacity="0.4" stroke-width="2" />
+  <rect x="32" y="32" width="1136" height="611" rx="8" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
+
+  <!-- Corner Brackets -->
+  <path d="M 40 70 L 40 40 L 70 40" fill="none" stroke="#a855f7" stroke-width="4" />
+  <path d="M 1130 40 L 1160 40 L 1160 70" fill="none" stroke="#a855f7" stroke-width="4" />
+  <path d="M 40 605 L 40 635 L 70 635" fill="none" stroke="#a855f7" stroke-width="4" />
+  <path d="M 1130 635 L 1160 635 L 1160 605" fill="none" stroke="#a855f7" stroke-width="4" />
+
+  <!-- Watermark badge -->
+  <g transform="translate(60, 60)">
+    <rect width="180" height="28" rx="4" fill="rgba(0,0,0,0.6)" stroke="#a855f7" stroke-width="1" />
+    <text x="14" y="19" font-family="'Courier New', monospace" font-size="12" font-weight="bold" fill="#a855f7">PIXEL FORGE STUDIO</text>
+  </g>
+
+  <!-- Center Artwork Content -->
+  <text x="600.0" y="317.5" font-family="'Segoe UI', -apple-system, sans-serif" font-weight="900" font-size="52" fill="#ffffff" text-anchor="middle" letter-spacing="2">
+    CHRONO RIFT: ECHOES
+  </text>
+  <text x="600.0" y="372.5" font-family="'Courier New', monospace" font-size="20" fill="#a855f7" text-anchor="middle" letter-spacing="4">
+    // SCI-FI METROIDVANIA //
+  </text>
+
+  <!-- Lower Tactical Spec HUD -->
+  <g transform="translate(400.0, 565)">
+    <rect width="400" height="36" rx="6" fill="rgba(10,14,23,0.8)" stroke="rgba(255,255,255,0.15)" stroke-width="1" />
+    <text x="200" y="23" font-family="'Courier New', monospace" font-size="13" fill="#94a3b8" text-anchor="middle">
+      AUTHENTIC IN-ENGINE TACTICAL DOSSIER
+    </text>
+  </g>
+</svg>

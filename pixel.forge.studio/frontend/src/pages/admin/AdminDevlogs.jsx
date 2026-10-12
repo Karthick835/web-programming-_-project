@@ -110,6 +110,10 @@ export default function AdminDevlogs({ games = [] }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (formData.category === 'PATCH NOTES' && !formData.game_id) {
+      alert('Please select a game for this patch note. Patch notes must belong to a specific game.');
+      return;
+    }
     try {
       const payload = {
         ...formData,

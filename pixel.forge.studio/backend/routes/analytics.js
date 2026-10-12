@@ -713,4 +713,42 @@ router.post('/simulate/steam', requireAuth(['admin', 'editor']), async (req, res
   }
 });
 
+/**
+ * GET /api/analytics/clicks-per-store
+ * Aggregates store_click events per platform.
+ * Supports filtering out simulated traffic.
+ */
+router.get('/clicks-per-store', requireAuth(['admin', 'editor']), async (req, res) => {
+  try {
+    const includeSimulated = req.query.include_simulated === 'true';
+    const simFilter = includeSimulated ? '' : 'AND (e.is_simulated = 0 OR e.is_simulated IS NULL)';
+
+    const rows = await allAsync(`
+      SELECT
+        COALESCE(JSON_EXTRACT(e.metadata, '$.platform'), 'Steam') as platform,
+        COUNT(*) as total_clicks,
+        COUNT(DISTINCT e.visitor_id) as unique_visitors
+      FROM events e
+      WHERE (e.event_type = 'store_click' OR e.event_type = 'steam_click')
+        ${simFilter}
+      GROUP BY platform
+      ORDER BY total_clicks DESC
+    `);
+
+    const totalClicks = rows.reduce((acc, r) => acc + (r.total_clicks || 0), 0);
+
+    const stores = rows.map(r => ({
+      platform: r.platform,
+      total_clicks: r.total_clicks,
+      unique_visitors: r.unique_visitors,
+      percentage: totalClicks > 0 ? Number(((r.total_clicks / totalClicks) * 100).toFixed(1)) : 0
+    }));
+
+    res.json({ stores, total_clicks: totalClicks });
+  } catch (err) {
+    console.error('Clicks per store error:', err);
+    res.status(500).json({ error: 'Failed to retrieve clicks per store.' });
+  }
+});
+
 module.exports = router;

@@ -192,3 +192,64 @@ The **Pilot Pass** gives returning visitors persistent multi-device recognition 
 - `experiments`: A/B tests with Variant A/B JSON configurations and winner states.
 - `experiment_assignments`: Sticky allocations mapping `visitor_id` + `experiment_id` &rarr; `variant`.
 - `experiment_conversions`: Goal events logged per variant (with `is_forced` and `is_simulated` flags).
+
+
+---
+
+## 🎮 Game Management System, Store Links & Media Pipeline
+
+### 1. Multi-Platform Store Links (`store_links`)
+Games now support direct multi-store links (`store_links`), moving beyond single hardcoded URLs while keeping backward compatibility:
+- **Supported Platforms**: Steam, Epic Games Store, GOG, itch.io, PlayStation Store, Xbox, Nintendo eShop, App Store, Google Play, Official Website.
+- **Link Structure**:
+  ```json
+  [
+    {
+      "platform": "Steam",
+      "url": "https://store.steampowered.com/app/2099",
+      "isPrimary": true,
+      "label": "View on Steam"
+    },
+    {
+      "platform": "PlayStation Store",
+      "url": "https://store.playstation.com/concept/cybervanguard",
+      "isPrimary": false,
+      "label": "PlayStation Store"
+    }
+  ]
+  ```
+- **Validation (Client & Server)**:
+  - URLs must use secure `https://` protocol only.
+  - `javascript:` and `data:` schemes are strictly blocked.
+  - Strict domain host validation per platform (e.g., Steam must point to `store.steampowered.com`, GOG to `gog.com`, Epic to `store.epicgames.com`, etc.).
+  - "Official Website" accepts any valid `https://` address.
+
+### 2. Dual Media Ingestion: File Upload & URL Pasting
+Both game covers (`cover_image` / `banner_img`) and screenshot galleries (`screenshots`) accept dual sources:
+- **Server File Upload (`POST /api/content/upload`)**:
+  - Protected by JWT authentication (`admin` or `editor` roles required).
+  - Rate-limited (max 60 uploads per 15 minutes).
+  - 5 MB file size limit with server-side MIME type inspection (`image/jpeg`, `image/png`, `image/webp`).
+  - Cryptographically secure filenames saved to `backend/uploads/` and served statically.
+- **URL Pasting & Verification**:
+  - Live preview in Admin Games manager.
+  - Client-side pre-flight image loading verification (`new Image()`) before saving. If the image fails to load, the user receives an alert: *"This link doesn't work as an image. Try another link or upload the file."*
+  - Detection for Google Images thumbnails (domains with `encrypted-tbn` or `gstatic`) with inline guidance.
+- **Accessible Screenshots**:
+  - Reorderable list (Move Up / Move Down).
+  - Alt-text field per screenshot for accessibility and SEO.
+
+### 3. Public Game Detail Modal (`GameModal.jsx`)
+- **Primary CTA**: Dynamically renders the designated primary store link (e.g. *"View on Steam"*). If no store links exist, gracefully displays *"Not available on any store yet"*.
+- **Interactive Platform Specs**: Target platform chips in the Specs sidebar link directly to their corresponding store pages when configured.
+- **"Also Available On" Section**: Surfaces secondary platforms with platform icons and secure new-tab navigation (`rel="noopener noreferrer"`).
+- **Embedded Trailers**: Automatically converts YouTube URLs into interactive nocookie embed iframes as item #0 in the gallery.
+- **Gallery Carousel**: Interactive thumbnails, left/right keyboard arrows, mobile touch swipe, and themed SVG fallback on broken images (`onError`).
+
+### 4. Telemetry & Analytics
+- **Events Tracked**:
+  - `store_click`: Emitted on every store CTA, secondary platform chip, or spec link click with `game_id`, `game_title`, and `platform`.
+  - `steam_click`: Maintained for funnel compatibility.
+  - `wishlist_add`: Tracked on Pilot Pass wishlist interactions.
+- **Admin Dashboard**:
+  - "Clicks per Store Platform" breakdown displaying click volume, unique visitors, and percentage of outbound traffic.

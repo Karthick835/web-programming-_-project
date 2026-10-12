@@ -3,6 +3,135 @@ const router = express.Router();
 const { runAsync, getAsync, allAsync } = require('../database');
 const { requireAuth } = require('../middleware/auth');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
+const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
+
+// Ensure uploads folder exists
+const uploadDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Multer storage with random filename
+const uploadStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const safeName = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`;
+    cb(null, safeName);
+  }
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Upload rate limit reached. Please wait before uploading again.' }
+});
+
+const upload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedExts = ['.jpg', '.jpeg', '.png', '.webp'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowedMimes.includes(file.mimetype) && allowedExts.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid image type. Only JPG, PNG, and WebP are allowed.'));
+    }
+  }
+});
+
+// Platform constraints & link validators
+const STORE_PLATFORMS = [
+  'Steam',
+  'Epic Games Store',
+  'GOG',
+  'itch.io',
+  'PlayStation Store',
+  'Xbox',
+  'Nintendo eShop',
+  'App Store',
+  'Google Play',
+  'Official Website'
+];
+
+function validateStoreLink(link) {
+  if (!link || typeof link !== 'object') return 'Invalid store link object';
+  const { platform, url } = link;
+  if (!platform || !STORE_PLATFORMS.includes(platform)) {
+    return `Invalid platform: "${platform}". Must be one of: ${STORE_PLATFORMS.join(', ')}`;
+  }
+  if (!url || typeof url !== 'string' || !url.trim()) {
+    return `Store URL is required for ${platform}`;
+  }
+  const trimmed = url.trim();
+  if (!trimmed.startsWith('https://')) {
+    return `Store URL for ${platform} must start with https://`;
+  }
+  if (/^(javascript|data):/i.test(trimmed)) {
+    return `Forbidden URL protocol for ${platform}`;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase();
+    switch (platform) {
+      case 'Steam':
+        if (host !== 'store.steampowered.com') return 'Steam URL host must be store.steampowered.com';
+        break;
+      case 'Epic Games Store':
+        if (host !== 'store.epicgames.com' && !host.endsWith('.epicgames.com')) return 'Epic Games Store URL host must be store.epicgames.com';
+        break;
+      case 'GOG':
+        if (host !== 'gog.com' && !host.endsWith('.gog.com')) return 'GOG URL host must be gog.com';
+        break;
+      case 'itch.io':
+        if (host !== 'itch.io' && !host.endsWith('.itch.io')) return 'itch.io URL host must be itch.io';
+        break;
+      case 'PlayStation Store':
+        if (host !== 'store.playstation.com' && !host.endsWith('.playstation.com')) return 'PlayStation Store URL host must be store.playstation.com';
+        break;
+      case 'Xbox':
+        if (host !== 'xbox.com' && !host.endsWith('.xbox.com') && host !== 'microsoft.com' && !host.endsWith('.microsoft.com')) return 'Xbox URL host must be xbox.com or microsoft.com';
+        break;
+      case 'Nintendo eShop':
+        if (host !== 'nintendo.com' && !host.endsWith('.nintendo.com')) return 'Nintendo eShop URL host must be nintendo.com';
+        break;
+      case 'App Store':
+        if (host !== 'apps.apple.com' && !host.endsWith('.apple.com')) return 'App Store URL host must be apps.apple.com';
+        break;
+      case 'Google Play':
+        if (host !== 'play.google.com') return 'Google Play URL host must be play.google.com';
+        break;
+      case 'Official Website':
+        // Accepts any valid https URL
+        break;
+    }
+  } catch (_) {
+    return `Invalid URL format for ${platform}`;
+  }
+  return null;
+}
+
+function validateTrailerUrl(url) {
+  if (!url || typeof url !== 'string' || !url.trim()) return null;
+  const trimmed = url.trim();
+  if (!trimmed.startsWith('https://')) {
+    return 'Trailer URL must start with https://';
+  }
+  if (/^(javascript|data):/i.test(trimmed)) {
+    return 'Forbidden trailer URL protocol';
+  }
+  return null;
+}
 
 // Rate limiter: 5 contact form submissions per hour per IP
 const contactRateLimit = rateLimit({
@@ -19,8 +148,67 @@ function isValidEmail(email) {
 }
 
 // ==========================================
-// 1. GAMES CRUD
+// 1. GAMES CRUD & MEDIA UPLOADS
 // ==========================================
+
+// POST /api/content/upload (Protected - Admin/Editor)
+router.post('/upload', requireAuth(['admin', 'editor']), uploadLimiter, (req, res) => {
+  upload.single('image')(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File too large. Maximum size is 5 MB.' });
+      }
+      return res.status(400).json({ error: `Upload error: ${err.message}` });
+    } else if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file uploaded.' });
+    }
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
+  });
+});
+
+// Helper: parse game model fields
+function formatGameResponse(g) {
+  let parsedLinks = [];
+  try {
+    parsedLinks = g.store_links ? JSON.parse(g.store_links) : [];
+  } catch (_) {}
+
+  // Auto-convert legacy play_url if no store_links exist
+  if ((!parsedLinks || parsedLinks.length === 0) && g.play_url && g.play_url !== '#') {
+    parsedLinks = [{ platform: 'Steam', url: g.play_url, isPrimary: true, label: 'View on Steam' }];
+  }
+
+  // Normalize screenshots structure: [{ source, value, alt }]
+  let parsedShots = [];
+  try {
+    const rawShots = g.screenshots ? JSON.parse(g.screenshots) : [];
+    parsedShots = rawShots.map(s => {
+      if (typeof s === 'string') return { source: 'url', value: s, alt: `${g.title} Screenshot` };
+      return {
+        source: s.source || 'url',
+        value: s.value || '',
+        alt: s.alt || `${g.title} Screenshot`
+      };
+    });
+  } catch (_) {}
+
+  const cover = g.cover_image || g.banner_img || '';
+
+  return {
+    ...g,
+    cover_image: cover,
+    banner_img: g.banner_img || cover,
+    engine: g.engine || 'PixelForge Engine v4.2',
+    store_links: parsedLinks,
+    platforms: g.platforms ? JSON.parse(g.platforms) : [],
+    screenshots: parsedShots,
+    tags: g.tags ? JSON.parse(g.tags) : []
+  };
+}
 
 // GET /api/content/games (Public)
 router.get('/games', async (req, res) => {
@@ -44,22 +232,14 @@ router.get('/games', async (req, res) => {
     sql += ` ORDER BY featured DESC, rating DESC, id ASC`;
     const games = await allAsync(sql, params);
 
-    // Parse JSON fields
-    const parsedGames = games.map(g => ({
-      ...g,
-      platforms: g.platforms ? JSON.parse(g.platforms) : [],
-      screenshots: g.screenshots ? JSON.parse(g.screenshots) : [],
-      tags: g.tags ? JSON.parse(g.tags) : []
-    }));
-
-    res.json({ games: parsedGames });
+    res.json({ games: games.map(formatGameResponse) });
   } catch (err) {
     console.error('Fetch games error:', err);
     res.status(500).json({ error: 'Failed to retrieve games.' });
   }
 });
 
-// GET /api/content/games/:id or :slug (Public)
+// GET /api/content/games/:identifier (Public)
 router.get('/games/:identifier', async (req, res) => {
   try {
     const { identifier } = req.params;
@@ -74,14 +254,7 @@ router.get('/games/:identifier', async (req, res) => {
       return res.status(404).json({ error: 'Game not found.' });
     }
 
-    res.json({
-      game: {
-        ...game,
-        platforms: game.platforms ? JSON.parse(game.platforms) : [],
-        screenshots: game.screenshots ? JSON.parse(game.screenshots) : [],
-        tags: game.tags ? JSON.parse(game.tags) : []
-      }
-    });
+    res.json({ game: formatGameResponse(game) });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch game details.' });
   }
@@ -93,7 +266,8 @@ router.post('/games', requireAuth(['admin', 'editor']), async (req, res) => {
     const {
       title, slug, genre, status = 'Released', description, tagline = '',
       release_date = '', rating = 4.8, platforms = [], trailer_url = '',
-      banner_img = '', screenshots = [], featured = 0, tags = [], play_url = '#',
+      banner_img = '', cover_image = '', screenshots = [], featured = 0, tags = [],
+      play_url = '#', store_links = [], engine = 'PixelForge Engine v4.2',
       create_launch_devlog = false
     } = req.body;
 
@@ -101,15 +275,39 @@ router.post('/games', requireAuth(['admin', 'editor']), async (req, res) => {
       return res.status(400).json({ error: 'Title, genre, and description are required.' });
     }
 
+    // Validate trailer URL
+    const trailerErr = validateTrailerUrl(trailer_url);
+    if (trailerErr) {
+      return res.status(400).json({ error: trailerErr });
+    }
+
+    // Validate store links
+    if (Array.isArray(store_links)) {
+      for (const link of store_links) {
+        const linkErr = validateStoreLink(link);
+        if (linkErr) {
+          return res.status(400).json({ error: linkErr });
+        }
+      }
+    }
+
     const finalSlug = slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const finalCover = cover_image || banner_img || '';
+    const finalBanner = banner_img || finalCover;
+
+    // Resolve primary link for fallback play_url
+    const primaryLink = (Array.isArray(store_links) ? store_links.find(s => s.isPrimary) : null) ||
+      (Array.isArray(store_links) && store_links.length > 0 ? store_links[0] : null);
+    const finalPlayUrl = primaryLink?.url || play_url || '#';
 
     const result = await runAsync(
-      `INSERT INTO games (title, slug, genre, status, tagline, description, release_date, rating, platforms, trailer_url, banner_img, screenshots, featured, tags, play_url)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO games (title, slug, genre, status, tagline, description, release_date, rating, platforms, trailer_url, banner_img, cover_image, screenshots, featured, tags, play_url, store_links, engine)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title, finalSlug, genre, status, tagline, description, release_date,
-        rating, JSON.stringify(platforms), trailer_url, banner_img,
-        JSON.stringify(screenshots), featured ? 1 : 0, JSON.stringify(tags), play_url
+        rating, JSON.stringify(platforms), trailer_url, finalBanner, finalCover,
+        JSON.stringify(screenshots), featured ? 1 : 0, JSON.stringify(tags),
+        finalPlayUrl, JSON.stringify(store_links), engine
       ]
     );
 
@@ -124,7 +322,7 @@ router.post('/games', requireAuth(['admin', 'editor']), async (req, res) => {
         await runAsync(
           `INSERT OR IGNORE INTO devlogs (title, slug, category, excerpt, content, cover_image, game_id, author, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
-          [devlogTitle, devlogSlug, 'GAME UPDATE', tagline || description.substring(0, 160), devlogContent, banner_img, gameId, 'Pixel Forge Team']
+          [devlogTitle, devlogSlug, 'GAME UPDATE', tagline || description.substring(0, 160), devlogContent, finalCover, gameId, 'Pixel Forge Team']
         );
       } catch (_) {}
     }
@@ -142,8 +340,32 @@ router.put('/games/:id', requireAuth(['admin', 'editor']), async (req, res) => {
     const { id } = req.params;
     const {
       title, genre, status, tagline, description, release_date, rating,
-      platforms, trailer_url, banner_img, screenshots, featured, tags, play_url
+      platforms, trailer_url, banner_img, cover_image, screenshots, featured, tags,
+      play_url, store_links, engine
     } = req.body;
+
+    // Validate trailer URL if provided
+    if (trailer_url !== undefined) {
+      const trailerErr = validateTrailerUrl(trailer_url);
+      if (trailerErr) return res.status(400).json({ error: trailerErr });
+    }
+
+    // Validate store links if provided
+    if (store_links !== undefined && Array.isArray(store_links)) {
+      for (const link of store_links) {
+        const linkErr = validateStoreLink(link);
+        if (linkErr) return res.status(400).json({ error: linkErr });
+      }
+    }
+
+    const finalCover = cover_image !== undefined ? cover_image : banner_img;
+    const finalBanner = banner_img !== undefined ? banner_img : finalCover;
+
+    let finalPlayUrl = play_url;
+    if (store_links && Array.isArray(store_links) && store_links.length > 0) {
+      const primary = store_links.find(s => s.isPrimary) || store_links[0];
+      if (primary && primary.url) finalPlayUrl = primary.url;
+    }
 
     await runAsync(
       `UPDATE games SET
@@ -157,24 +379,31 @@ router.put('/games/:id', requireAuth(['admin', 'editor']), async (req, res) => {
        platforms = COALESCE(?, platforms),
        trailer_url = COALESCE(?, trailer_url),
        banner_img = COALESCE(?, banner_img),
+       cover_image = COALESCE(?, cover_image),
        screenshots = COALESCE(?, screenshots),
        featured = COALESCE(?, featured),
        tags = COALESCE(?, tags),
-       play_url = COALESCE(?, play_url)
+       play_url = COALESCE(?, play_url),
+       store_links = COALESCE(?, store_links),
+       engine = COALESCE(?, engine)
        WHERE id = ?`,
       [
         title, genre, status, tagline, description, release_date, rating,
         platforms ? JSON.stringify(platforms) : null,
-        trailer_url, banner_img,
+        trailer_url, finalBanner, finalCover,
         screenshots ? JSON.stringify(screenshots) : null,
         featured !== undefined ? (featured ? 1 : 0) : null,
         tags ? JSON.stringify(tags) : null,
-        play_url, id
+        finalPlayUrl,
+        store_links ? JSON.stringify(store_links) : null,
+        engine,
+        id
       ]
     );
 
     res.json({ message: 'Game updated successfully' });
   } catch (err) {
+    console.error('Update game error:', err);
     res.status(500).json({ error: 'Failed to update game.' });
   }
 });
@@ -693,6 +922,10 @@ router.post('/devlogs', requireAuth(['admin', 'editor']), async (req, res) => {
       return res.status(400).json({ error: 'Title, category, excerpt, content, and author are required.' });
     }
 
+    if (category === 'PATCH NOTES' && !game_id) {
+      return res.status(400).json({ error: 'A game must be selected for patch notes.' });
+    }
+
     const finalSlug = slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     const published_at = status === 'published' ? new Date().toISOString() : null;
 
@@ -717,6 +950,10 @@ router.put('/devlogs/:id', requireAuth(['admin', 'editor']), async (req, res) =>
   try {
     const { id } = req.params;
     const { title, slug, category, excerpt, content, cover_image, game_id, version, author, status } = req.body;
+    if (category === 'PATCH NOTES' && !game_id) {
+      return res.status(400).json({ error: 'A game must be selected for patch notes.' });
+    }
+
 
     // If publishing for first time, set published_at
     const existing = await getAsync(`SELECT status, published_at FROM devlogs WHERE id = ?`, [id]);

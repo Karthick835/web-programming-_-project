@@ -171,6 +171,11 @@ export default function App() {
         await pilotAPI.updatePreferences({ visitor_id: visitorId, wishlist: next });
       } catch (_) {}
     }
+    if (!wishlist.includes(gameId)) {
+      trackEvent('wishlist_add', window.location.pathname, {
+        game_id: gameId
+      });
+    }
     trackEvent('click', window.location.pathname, {
       action: wishlist.includes(gameId) ? 'remove_wishlist' : 'add_wishlist',
       game_id: gameId

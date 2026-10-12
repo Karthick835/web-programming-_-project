@@ -47,6 +47,7 @@ export const contentAPI = {
   createGame: (data) => api.post('/content/games', data),
   updateGame: (id, data) => api.put(`/content/games/${id}`, data),
   deleteGame: (id) => api.delete(`/content/games/${id}`),
+  uploadImage: (formData) => api.post('/content/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
 
   // Team
   getTeam: () => api.get('/content/team'),
@@ -104,7 +105,8 @@ export const analyticsAPI = {
     api.get('/analytics/funnel/steam', { params: { include_simulated: includeSimulated } }),
   getGamesSteamStats: (includeSimulated = false) =>
     api.get('/analytics/games/steam', { params: { include_simulated: includeSimulated } }),
-  simulateSteamTraffic: () => api.post('/analytics/simulate/steam')
+  simulateSteamTraffic: () => api.post('/analytics/simulate/steam'),
+  getClicksPerStore: (includeSimulated = false) => api.get('/analytics/clicks-per-store', { params: { include_simulated: includeSimulated } })
 };
 
 export const abAPI = {

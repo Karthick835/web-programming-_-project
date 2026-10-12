@@ -88,6 +88,57 @@ async function initDatabase() {
     )
   `);
 
+  // STORE_LINKS_MIGRATION_DONE
+  // Migrations: store_links + cover_image + engine on games table
+  try { await runAsync(`ALTER TABLE games ADD COLUMN store_links TEXT DEFAULT '[]'`); } catch (_) {}
+  try { await runAsync(`ALTER TABLE games ADD COLUMN cover_image TEXT DEFAULT ''`); } catch (_) {}
+  try { await runAsync(`ALTER TABLE games ADD COLUMN engine TEXT DEFAULT 'PixelForge Engine v4.2'`); } catch (_) {}
+
+  // Fix Devlog 2 game title mismatch if present
+  try {
+    await runAsync(
+      `UPDATE devlogs SET title = 'Chrono Rift: Echoes — Patch 1.2 Combat Overhaul & New Stance Arts', content = REPLACE(content, 'Neon Ronin: Echoes', 'Chrono Rift: Echoes') WHERE id = 2 AND title LIKE '%Neon Ronin%'`
+    );
+  } catch (_) {}
+
+  // Ensure games have valid store_links, cover_image and engine
+  try {
+    const currentGames = await allAsync(`SELECT id, title, play_url, store_links, cover_image, banner_img FROM games`);
+    for (const g of currentGames) {
+      let links = [];
+      try { links = JSON.parse(g.store_links || '[]'); } catch (_) {}
+      // Filter out invalid '#' URLs
+      links = links.filter(l => l.url && l.url !== '#');
+      if (links.length === 0) {
+        if (g.id === 1) {
+          links = [
+            { platform: 'Steam', url: 'https://store.steampowered.com', isPrimary: true, label: 'View on Steam' },
+            { platform: 'PlayStation Store', url: 'https://store.playstation.com', isPrimary: false, label: 'PlayStation Store' }
+          ];
+        } else if (g.id === 2) {
+          links = [
+            { platform: 'Steam', url: 'https://store.steampowered.com', isPrimary: true, label: 'View on Steam' },
+            { platform: 'Nintendo eShop', url: 'https://www.nintendo.com', isPrimary: false, label: 'Nintendo eShop' }
+          ];
+        } else if (g.play_url && g.play_url !== '#') {
+          links = [{ platform: 'Steam', url: g.play_url, isPrimary: true, label: 'View on Steam' }];
+        }
+      } else {
+        // Normalize links to have isPrimary and label
+        links = links.map((l, i) => ({
+          platform: l.platform || 'Steam',
+          url: l.url,
+          isPrimary: l.isPrimary !== undefined ? l.isPrimary : i === 0,
+          label: l.label || `View on ${l.platform || 'Steam'}`
+        }));
+      }
+      const cover = g.cover_image || g.banner_img || '';
+      await runAsync(`UPDATE games SET store_links = ?, cover_image = ? WHERE id = ?`, [JSON.stringify(links), cover, g.id]);
+    }
+  } catch (e) {
+    console.error('[DB] Migration error on games update:', e);
+  }
+
   // 3. Team members table (Unique name, real social links structure, verified dev flag)
   await runAsync(`
     CREATE TABLE IF NOT EXISTS team_members (
@@ -346,7 +397,7 @@ async function seedInitialData() {
         rating: 4.9,
         platforms: JSON.stringify(['Steam', 'PlayStation 5', 'Xbox Series X', 'Nintendo Switch 2']),
         trailer_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        banner_img: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=1200&auto=format&fit=crop&q=80',
+        banner_img: '/uploads/cybervanguard-2099-cover.svg',
         screenshots: JSON.stringify([
           'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=800&auto=format&fit=crop&q=80',
           'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop&q=80',
@@ -367,7 +418,7 @@ async function seedInitialData() {
         rating: 4.7,
         platforms: JSON.stringify(['Steam', 'Nintendo Switch 2', 'PlayStation 5']),
         trailer_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        banner_img: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=1200&auto=format&fit=crop&q=80',
+        banner_img: '/uploads/chrono-rift-echoes-cover.svg',
         screenshots: JSON.stringify([
           'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&auto=format&fit=crop&q=80',
           'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&auto=format&fit=crop&q=80'
@@ -387,7 +438,7 @@ async function seedInitialData() {
         rating: 4.8,
         platforms: JSON.stringify(['Steam', 'Xbox Series X']),
         trailer_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        banner_img: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=1200&auto=format&fit=crop&q=80',
+        banner_img: '/uploads/pixel-siege-retribution-cover.svg',
         screenshots: JSON.stringify([
           'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=800&auto=format&fit=crop&q=80',
           'https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?w=800&auto=format&fit=crop&q=80'
@@ -407,7 +458,7 @@ async function seedInitialData() {
         rating: 4.6,
         platforms: JSON.stringify(['Steam']),
         trailer_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        banner_img: 'https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?w=1200&auto=format&fit=crop&q=80',
+        banner_img: '/uploads/abyssal-drifter-cover.svg',
         screenshots: JSON.stringify([
           'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&auto=format&fit=crop&q=80'
         ]),
@@ -419,9 +470,11 @@ async function seedInitialData() {
 
     for (const g of games) {
       await runAsync(
-        `INSERT OR IGNORE INTO games (title, slug, genre, status, description, tagline, release_date, rating, platforms, trailer_url, banner_img, screenshots, featured, tags, play_url)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [g.title, g.slug, g.genre, g.status, g.description, g.tagline, g.release_date, g.rating, g.platforms, g.trailer_url, g.banner_img, g.screenshots, g.featured, g.tags, g.play_url]
+        `INSERT OR IGNORE INTO games (title, slug, genre, status, description, tagline, release_date, rating, platforms, trailer_url, banner_img, screenshots, featured, tags, play_url, store_links, cover_image)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [g.title, g.slug, g.genre, g.status, g.description, g.tagline, g.release_date, g.rating, g.platforms, g.trailer_url, g.banner_img, g.screenshots, g.featured, g.tags, g.play_url,
+         g.store_links || JSON.stringify([{platform:'Steam',url:g.play_url||'https://store.steampowered.com'}]),
+         g.cover_image || g.banner_img || '']
       );
     }
   }
@@ -642,11 +695,11 @@ Look out for public matchmaking stress-tests during our next open beta session!`
         published_at: '2026-09-15 14:00:00'
       },
       {
-        title: 'Neon Ronin: Echoes — Patch 1.2 Combat Overhaul & New Katana Arts',
-        slug: 'neon-ronin-patch-1-2-combat-overhaul',
+        title: 'Chrono Rift: Echoes — Patch 1.2 Combat Overhaul & New Stance Arts',
+        slug: 'chrono-rift-patch-1-2-combat-overhaul',
         category: 'PATCH NOTES',
         excerpt: 'Version 1.2 brings complete hit-stop rebalancing, 4 new ancestral weapon stances, and native Steam Deck 90Hz OLED optimization.',
-        content: `# Neon Ronin: Echoes — Major Update 1.2
+        content: `# Chrono Rift: Echoes — Major Update 1.2
 
 Today we are deploying **Update 1.2** across all platforms! This patch directly addresses player combat feedback from the community discord and introduces our much-anticipated Katana Mastery stances.
 
@@ -668,7 +721,7 @@ Today we are deploying **Update 1.2** across all platforms! This patch directly 
 - Full Steam Cloud save synchronization.
 \`\`\`
 
-Enjoy the new stances, Ronin! As always, share your boss fight clips with us on our community channels.`,
+Enjoy the new stances, Time Drifter! As always, share your boss fight clips with us on our community channels.`,
         cover_image: 'https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=1200&q=80',
         game_id: 2,
         version: 'v1.2.0',
