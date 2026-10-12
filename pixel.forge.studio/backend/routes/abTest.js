@@ -242,6 +242,153 @@ router.post('/convert', async (req, res) => {
 });
 
 
+
+// ============================================================
+// FEATURE 2: PUBLIC VARIANT ASSIGNMENT (no admin auth needed)
+// The front-end calls this when a visitor lands on /games
+// so we can render Variant A or B of the game card.
+// ============================================================
+
+/**
+ * GET /api/ab/assign/:expKey?visitorId=vis_xxx
+ * Returns the variant (A or B) for this visitor+experiment.
+ * If no assignment exists, randomly assigns 50/50 and stores it.
+ * The same visitor ALWAYS gets the same variant back.
+ */
+router.get('/assign/:expKey', async (req, res) => {
+  try {
+    const { expKey } = req.params;
+    const { visitorId } = req.query;
+
+    if (!visitorId) {
+      return res.status(400).json({ error: 'visitorId query param is required.' });
+    }
+
+    // Look up the experiment by its key
+    const experiment = await getAsync(
+      `SELECT * FROM experiments WHERE exp_key = ? AND status = 'active'`,
+      [expKey]
+    );
+
+    if (!experiment) {
+      // If experiment not found or paused, return A as safe default
+      return res.json({ variant: 'A', config: { layout: 'classic', buttonText: 'VIEW ON STEAM', highlight: 'none' } });
+    }
+
+    // Check for existing assignment - sticky assignment guarantees consistency
+    let assignment = await getAsync(
+      `SELECT variant FROM experiment_assignments WHERE visitor_id = ? AND experiment_id = ?`,
+      [visitorId, experiment.id]
+    );
+
+    if (!assignment) {
+      // No assignment yet: randomly assign 50/50
+      const variant = Math.random() < 0.5 ? 'A' : 'B';
+      await runAsync(
+        `INSERT OR IGNORE INTO experiment_assignments (visitor_id, experiment_id, variant, assigned_at, is_forced, is_simulated)
+         VALUES (?, ?, ?, datetime('now'), 0, 0)`,
+        [visitorId, experiment.id, variant]
+      );
+      assignment = { variant };
+    }
+
+    // Parse the config JSON for the assigned variant
+    let config = {};
+    try {
+      const rawConfig = assignment.variant === 'A' ? experiment.variant_a_config : experiment.variant_b_config;
+      config = JSON.parse(rawConfig);
+    } catch (_) {}
+
+    res.json({
+      variant: assignment.variant,
+      config,
+      expKey: experiment.exp_key,
+      experimentId: experiment.id
+    });
+  } catch (err) {
+    console.error('Public assign error:', err);
+    res.status(500).json({ error: 'Failed to assign variant.' });
+  }
+});
+
+/**
+ * POST /api/ab/simulate/game-card
+ * Generates ~200 fake visitors assigned to game_card_design experiment.
+ * Variant A: 8% conversion rate  |  Variant B: 14% conversion rate
+ * All data marked is_simulated=1 so it can be cleared with DELETE /simulated.
+ */
+router.post('/simulate/game-card', requireAuth(['admin', 'editor']), async (req, res) => {
+  try {
+    const experiment = await getAsync(`SELECT * FROM experiments WHERE exp_key = 'game_card_design'`);
+    if (!experiment) {
+      return res.status(404).json({ error: 'game_card_design experiment not found. Restart the server to seed it.' });
+    }
+
+    const games = await allAsync(`SELECT id FROM games LIMIT 6`);
+    if (!games.length) return res.status(400).json({ error: 'No games in DB.' });
+
+    const totalVisitors = 200; // ~100 per variant for statistical power
+
+    for (let i = 0; i < totalVisitors; i++) {
+      const visitorId = 'sim_gc_' + Math.random().toString(36).substring(2, 10);
+      const variant = i < totalVisitors / 2 ? 'A' : 'B'; // exactly 100 each
+      const pastMs = Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000);
+      const ts = new Date(Date.now() - pastMs).toISOString();
+      const game = games[Math.floor(Math.random() * games.length)];
+
+      // Record simulated profile
+      await runAsync(
+        `INSERT OR IGNORE INTO visitor_profiles
+         (visitor_id, first_seen, last_seen, total_visits, device_type, browser, os, first_referrer, assigned_variants, goals_completed, status, is_simulated)
+         VALUES (?, ?, ?, 1, 'desktop', 'Chrome', 'Windows', 'Direct', ?, '[]', 'new', 1)`,
+        [visitorId, ts, ts, JSON.stringify({ game_card_design: variant })]
+      );
+
+      // Record assignment
+      await runAsync(
+        `INSERT OR IGNORE INTO experiment_assignments (visitor_id, experiment_id, variant, assigned_at, is_forced, is_simulated)
+         VALUES (?, ?, ?, ?, 0, 1)`,
+        [visitorId, experiment.id, variant, ts]
+      );
+
+      // Fire game_opened event for all visitors
+      await runAsync(
+        `INSERT INTO events (visitor_id, session_id, event_type, page_url, device_type, browser, screen_res, timestamp, metadata, is_simulated)
+         VALUES (?, ?, 'game_opened', '/games', 'desktop', 'Chrome', '1920x1080', ?, ?, 1)`,
+        [visitorId, 'ses_' + Math.random().toString(36).substring(2, 9), ts,
+         JSON.stringify({ game_id: game.id, variant, simulated: true })]
+      );
+
+      // Variant A: 8% steam click rate  |  Variant B: 14% steam click rate
+      const convRate = variant === 'A' ? 0.08 : 0.14;
+      if (Math.random() < convRate) {
+        await runAsync(
+          `INSERT INTO events (visitor_id, session_id, event_type, page_url, device_type, browser, screen_res, timestamp, metadata, is_simulated)
+           VALUES (?, ?, 'steam_click', '/games', 'desktop', 'Chrome', '1920x1080', ?, ?, 1)`,
+          [visitorId, 'ses_' + Math.random().toString(36).substring(2, 9), ts,
+           JSON.stringify({ game_id: game.id, variant, simulated: true })]
+        );
+
+        // Also record as experiment conversion
+        await runAsync(
+          `INSERT INTO experiment_conversions (visitor_id, experiment_id, variant, goal_event, timestamp, is_forced, is_simulated)
+           VALUES (?, ?, ?, 'steam_click', ?, 0, 1)`,
+          [visitorId, experiment.id, variant, ts]
+        );
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Simulated ${totalVisitors} visitors: 100 Variant A (8% conv) + 100 Variant B (14% conv). All marked is_simulated=1.`,
+      totalVisitors
+    });
+  } catch (err) {
+    console.error('Game card simulate error:', err);
+    res.status(500).json({ error: 'Failed to simulate game card experiment.' });
+  }
+});
+
 // ==========================================
 // 2. ADMIN EXPERIMENTS & STATISTICAL DASHBOARD
 // ==========================================

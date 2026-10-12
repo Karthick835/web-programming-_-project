@@ -53,6 +53,7 @@ export default function AdminLayout({ activeTab, setActiveTab, onExitAdmin, chil
 
   const tabs = [
     { id: 'analytics', label: 'ANALYTICS & FUNNEL', icon: BarChart3, roleRequired: 'editor' },
+    { id: 'steam', label: 'STEAM FUNNEL', icon: Activity, roleRequired: 'editor' },
     { id: 'visitors', label: 'VISITOR PROFILES', icon: UserCheck, roleRequired: 'editor' },
     { id: 'experiments', label: 'A/B TESTING STUDIO', icon: Split, roleRequired: 'editor' },
     { id: 'games', label: 'GAMES MANAGER', icon: Gamepad2, roleRequired: 'editor' },

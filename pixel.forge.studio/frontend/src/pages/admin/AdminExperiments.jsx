@@ -22,6 +22,8 @@ export default function AdminExperiments() {
   const [experiments, setExperiments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [includeSimulated, setIncludeSimulated] = useState(true);
+  const [simulating, setSimulating] = useState(false);
   const { isAdmin } = useAuth();
 
   // Create form state
@@ -39,10 +41,10 @@ export default function AdminExperiments() {
     variant_b_subtitle: 'Where retro arcade passion meets next-gen indie gaming.'
   });
 
-  const fetchExperiments = async () => {
+  const fetchExperiments = async (incSim = includeSimulated) => {
     setLoading(true);
     try {
-      const res = await abAPI.getExperiments();
+      const res = await abAPI.getExperiments({ include_simulated: incSim });
       setExperiments(res.data.experiments || []);
     } catch (err) {
       console.error('Failed to load experiments:', err);
@@ -52,8 +54,22 @@ export default function AdminExperiments() {
   };
 
   useEffect(() => {
-    fetchExperiments();
-  }, []);
+    fetchExperiments(includeSimulated);
+  }, [includeSimulated]);
+
+  const handleSimulateGameCard = async () => {
+    setSimulating(true);
+    try {
+      const res = await abAPI.simulateGameCardTraffic(200);
+      setIncludeSimulated(true);
+      await fetchExperiments(true);
+      alert(res.data.message || 'Simulated 200 visitors for Game Card experiment (Variant A ~8%, Variant B ~14%)!');
+    } catch (err) {
+      alert('Failed to simulate game card traffic: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSimulating(false);
+    }
+  };
 
   const handleDeclareWinner = async (expId, winnerVariant) => {
     if (!window.confirm(`Are you sure you want to conclude this experiment and declare Variant ${winnerVariant} the permanent winner?`)) return;
@@ -128,13 +144,34 @@ export default function AdminExperiments() {
           </h1>
         </div>
 
-        <button
-          onClick={() => setCreateModalOpen(true)}
-          className="cyber-btn cyber-btn-cyan text-xs py-2.5 px-5 flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          CREATE EXPERIMENT
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs font-mono text-slate-300 bg-slate-900/80 px-3 py-2 rounded border border-slate-800 cursor-pointer hover:border-slate-700">
+            <input
+              type="checkbox"
+              checked={includeSimulated}
+              onChange={(e) => setIncludeSimulated(e.target.checked)}
+              className="rounded bg-slate-800 border-slate-700 text-cyan-500 focus:ring-0"
+            />
+            Include Simulated Data
+          </label>
+
+          <button
+            onClick={handleSimulateGameCard}
+            disabled={simulating}
+            className="cyber-btn bg-amber-500/10 border border-amber-500/40 text-amber-400 hover:bg-amber-500/20 text-xs py-2.5 px-4 flex items-center gap-2 transition-all disabled:opacity-50"
+          >
+            <Sparkles className="w-4 h-4" />
+            {simulating ? 'SIMULATING (200)...' : 'SIMULATE GAME CARD (200)'}
+          </button>
+
+          <button
+            onClick={() => setCreateModalOpen(true)}
+            className="cyber-btn cyber-btn-cyan text-xs py-2.5 px-5 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            CREATE EXPERIMENT
+          </button>
+        </div>
       </div>
 
       {/* Experiments List */}
@@ -227,8 +264,8 @@ export default function AdminExperiments() {
 
                   {/* Config payload preview */}
                   <div className="p-3 bg-slate-950 rounded border border-slate-900 text-xs font-mono space-y-1 text-slate-300">
-                    <div><strong>CTA Button:</strong> "{exp.variant_a_config?.ctaText}"</div>
-                    <div className="truncate text-slate-400 text-[11px]">"{exp.variant_a_config?.heroSubtitle}"</div>
+                    <div><strong>Button/Action:</strong> "{exp.variant_a_config?.buttonText || exp.variant_a_config?.ctaText || 'Default'}"</div>
+                    <div className="truncate text-slate-400 text-[11px]">"{exp.variant_a_config?.layout ? `Layout: ${exp.variant_a_config.layout}` : exp.variant_a_config?.heroSubtitle || ''}"</div>
                   </div>
 
                   {!isConcluded && (
@@ -275,8 +312,8 @@ export default function AdminExperiments() {
 
                   {/* Config payload preview */}
                   <div className="p-3 bg-slate-950 rounded border border-slate-900 text-xs font-mono space-y-1 text-slate-300">
-                    <div><strong>CTA Button:</strong> "{exp.variant_b_config?.ctaText}"</div>
-                    <div className="truncate text-slate-400 text-[11px]">"{exp.variant_b_config?.heroSubtitle}"</div>
+                    <div><strong>Button/Action:</strong> "{exp.variant_b_config?.buttonText || exp.variant_b_config?.ctaText || 'Default'}"</div>
+                    <div className="truncate text-slate-400 text-[11px]">"{exp.variant_b_config?.layout ? `Layout: ${exp.variant_b_config.layout}` : exp.variant_b_config?.heroSubtitle || ''}"</div>
                   </div>
 
                   {!isConcluded && (

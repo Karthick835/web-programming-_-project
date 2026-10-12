@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Star, Play, Heart, BookOpen, Calendar, ArrowRight } from 'lucide-react';
 import Modal from './ui/Modal';
 import { contentAPI } from '../services/api';
-import { trackEvent } from '../services/tracker';
+import { trackEvent, getVisitorId } from '../services/tracker';
 
 export default function GameModal({
   game,
@@ -29,6 +29,16 @@ export default function GameModal({
   if (!game) return null;
 
   const handleLaunch = () => {
+    // Feature 1: Fire steam_click event BEFORE opening the tab.
+    // We do NOT await - we fire-and-forget so the click is instant.
+    // The event carries game_id and the variant so we can see which
+    // card design drove more Steam clicks (A/B test goal metric).
+    trackEvent('steam_click', window.location.pathname, {
+      game_id: game.id,
+      game_title: game.title,
+      steam_url: game.play_url || '',
+      variant: game.variant || 'A' // passed from parent when A/B is active
+    });
     trackEvent('click', window.location.pathname, { action: 'launch_game_store', game: game.title });
     if (game.play_url && game.play_url !== '#') {
       window.open(game.play_url, '_blank');

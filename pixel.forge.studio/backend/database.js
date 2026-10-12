@@ -183,6 +183,8 @@ async function initDatabase() {
   `);
   try { await runAsync(`ALTER TABLE events ADD COLUMN is_simulated INTEGER DEFAULT 0`); } catch (_) {}
   try { await runAsync(`ALTER TABLE events ADD COLUMN is_forced INTEGER DEFAULT 0`); } catch (_) {}
+  // Migration: add game_id for per-game Steam click tracking (Feature 1)
+  try { await runAsync(`ALTER TABLE events ADD COLUMN game_id INTEGER`); } catch (_) {}
 
   // Indexes for analytics
   await runAsync(`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`);
@@ -760,6 +762,30 @@ We will be launching the official OST vinyl release alongside our upcoming physi
         '{"ctaText": "PLAY OUR GAMES", "heroSubtitle": "Crafting transcendent pixel-art masterpieces and adrenaline-fueled indie experiences.", "badgeText": "🔥 NEW RELEASE: CYBERVANGUARD 2099", "accentColor": "cyan"}',
         'Variant B (Explore Studio)',
         '{"ctaText": "EXPLORE THE STUDIO", "heroSubtitle": "Where retro arcade passion meets next-generation indie gaming innovation.", "badgeText": "🚀 DISCOVER OUR WORLDS", "accentColor": "magenta"}',
+        NULL
+      )
+    `);
+  }
+
+  // ===== Seed game_card_design A/B experiment (Feature 2) =====
+  const gcExp = await getAsync(`SELECT id FROM experiments WHERE exp_key = 'game_card_design'`);
+  if (!gcExp) {
+    console.log('[DB] Seeding game_card_design A/B experiment...');
+    await runAsync(`
+      INSERT OR IGNORE INTO experiments (
+        exp_key, name, description, goal_event, target_page, status,
+        variant_a_label, variant_a_config, variant_b_label, variant_b_config, winner_variant
+      ) VALUES (
+        'game_card_design',
+        'Game Card Design Test',
+        'Tests two game card layouts. A = current card with VIEW arrow. B = Steam-first card with bold PLAY ON STEAM button and banner highlight.',
+        'steam_click',
+        '/games',
+        'active',
+        'Variant A (Classic Card)',
+        '{"layout":"classic","buttonText":"VIEW ON STEAM","highlight":"none"}',
+        'Variant B (Steam-First Card)',
+        '{"layout":"steam_first","buttonText":"PLAY ON STEAM","highlight":"banner"}',
         NULL
       )
     `);

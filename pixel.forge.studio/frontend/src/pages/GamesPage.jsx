@@ -1,14 +1,38 @@
-import React, { useState } from 'react';
-import { Search, Filter, Gamepad2, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Gamepad2, Sparkles, Split } from 'lucide-react';
 import GameCard from '../components/GameCard';
+import GameCardVariantB from '../components/GameCardVariantB';
 import SectionHeading from '../components/ui/SectionHeading';
 import EmptyState from '../components/ui/EmptyState';
-import { trackEvent } from '../services/tracker';
+import { trackEvent, getVisitorId } from '../services/tracker';
+import { abAPI } from '../services/api';
 
 export default function GamesPage({ games, onSelectGame, wishlist = [], onToggleWishlist }) {
   const [selectedGenre, setSelectedGenre] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // ── Feature 2: A/B Game Card Variant ─────────────────────────────────────
+  // We fetch the variant assignment from the backend once on mount.
+  // The backend assigns A or B randomly (50/50) on the first visit,
+  // then always returns the SAME variant for that visitor → sticky assignment.
+  const [cardVariant, setCardVariant] = useState('A'); // default to A while loading
+  const [variantLoaded, setVariantLoaded] = useState(false);
+
+  useEffect(() => {
+    const visitorId = getVisitorId();
+    abAPI.getPublicAssignment('game_card_design', visitorId)
+      .then(res => {
+        if (res.data?.variant) {
+          setCardVariant(res.data.variant);
+        }
+      })
+      .catch(() => {
+        // If the request fails, keep Variant A (safe default)
+        setCardVariant('A');
+      })
+      .finally(() => setVariantLoaded(true));
+  }, []);
 
   const genres = ['All', 'Action RPG', 'Pixel Roguelike', 'Adventure', 'Tactics'];
   const statuses = ['All', 'Released', 'In Beta', 'In Development'];
@@ -99,13 +123,27 @@ export default function GamesPage({ games, onSelectGame, wishlist = [], onToggle
       {filteredGames.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredGames.map((game) => (
-            <GameCard
-              key={game.id}
-              game={game}
-              onSelect={onSelectGame}
-              isWishlisted={wishlist.includes(game.id)}
-              onToggleWishlist={onToggleWishlist}
-            />
+            // Feature 2: render Variant A or B based on the A/B assignment
+            // Both variants receive the same props so swapping is seamless
+            cardVariant === 'B' ? (
+              <GameCardVariantB
+                key={game.id}
+                game={game}
+                onSelect={onSelectGame}
+                isWishlisted={wishlist.includes(game.id)}
+                onToggleWishlist={onToggleWishlist}
+                variant="B"
+              />
+            ) : (
+              <GameCard
+                key={game.id}
+                game={game}
+                onSelect={onSelectGame}
+                isWishlisted={wishlist.includes(game.id)}
+                onToggleWishlist={onToggleWishlist}
+                variant="A"
+              />
+            )
           ))}
         </div>
       ) : (

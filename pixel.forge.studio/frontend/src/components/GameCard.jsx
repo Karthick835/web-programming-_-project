@@ -2,10 +2,16 @@ import React from 'react';
 import { Star, Play, Heart, Layers, ExternalLink, ArrowRight } from 'lucide-react';
 import { trackEvent } from '../services/tracker';
 
-export default function GameCard({ game, onSelect, isWishlisted = false, onToggleWishlist }) {
+export default function GameCard({ game, onSelect, isWishlisted = false, onToggleWishlist, variant = 'A' }) {
   const handlePlayClick = (e) => {
     e.stopPropagation();
-    trackEvent('click', window.location.pathname, { action: 'play_demo', game: game.title });
+    // Track that a game dossier was opened (Feature 1: step 2 of the funnel)
+    // We pass game_id and variant so analytics can attribute per-game and per-variant
+    trackEvent('game_opened', window.location.pathname, {
+      game_id: game.id,
+      game_title: game.title,
+      variant // A/B variant this visitor was assigned to
+    });
     onSelect(game);
   };
 
@@ -15,7 +21,15 @@ export default function GameCard({ game, onSelect, isWishlisted = false, onToggl
 
   return (
     <div
-      onClick={() => onSelect(game)}
+      onClick={() => {
+        // Track the game_opened event when the card itself is clicked
+        trackEvent('game_opened', window.location.pathname, {
+          game_id: game.id,
+          game_title: game.title,
+          variant
+        });
+        onSelect(game);
+      }}
       className="cyber-card group cursor-pointer h-full flex flex-col justify-between overflow-hidden relative"
     >
       {/* Top Banner Image with overlay */}

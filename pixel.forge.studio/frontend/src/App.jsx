@@ -22,6 +22,7 @@ import NotFoundPage from './pages/NotFoundPage';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminDashboard from './pages/admin/AdminDashboard';
+import SteamFunnelPage from './pages/admin/SteamFunnelPage';
 import AdminVisitors from './pages/admin/AdminVisitors';
 import AdminExperiments from './pages/admin/AdminExperiments';
 import AdminGames from './pages/admin/AdminGames';
@@ -296,6 +297,7 @@ export default function App() {
           onExitAdmin={() => navigateTo('home')}
         >
           {adminActiveTab === 'analytics' && <AdminDashboard />}
+          {adminActiveTab === 'steam' && <SteamFunnelPage />}
           {adminActiveTab === 'visitors' && <AdminVisitors />}
           {adminActiveTab === 'experiments' && <AdminExperiments />}
           {adminActiveTab === 'games' && <AdminGames games={games} onReload={loadAllContent} />}

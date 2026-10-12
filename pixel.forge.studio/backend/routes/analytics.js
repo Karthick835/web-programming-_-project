@@ -506,4 +506,211 @@ router.delete('/simulated', requireAuth(['admin', 'editor']), async (req, res) =
   }
 });
 
+
+
+// ============================================================
+// FEATURE 1: STEAM CLICK TRACKING FUNNEL & GAME STATS
+// These are ADMIN-only endpoints that count unique visitors,
+// not raw event counts. One visitor clicking 5 times = 1.
+// ============================================================
+
+/**
+ * GET /api/analytics/funnel/steam
+ * Returns the 3-step Steam funnel:
+ *   Step 1: site_visit  (unique visitors who hit any page)
+ *   Step 2: game_opened (unique visitors who opened a game dossier)
+ *   Step 3: steam_click (unique visitors who clicked View on Steam)
+ * Drop-off % = how many were lost between each step.
+ */
+router.get('/funnel/steam', requireAuth(['admin', 'editor']), async (req, res) => {
+  try {
+    const includeSimulated = req.query.include_simulated === 'true';
+    const simFilter = includeSimulated ? '' : 'AND (is_simulated = 0 OR is_simulated IS NULL)';
+
+    // Step 1: All unique visitors who had any event (site visit)
+    const step1Row = await getAsync(`
+      SELECT COUNT(DISTINCT visitor_id) as count FROM events WHERE 1=1 ${simFilter}
+    `);
+
+    // Step 2: Unique visitors who fired the 'game_opened' event
+    const step2Row = await getAsync(`
+      SELECT COUNT(DISTINCT visitor_id) as count
+      FROM events WHERE event_type = 'game_opened' ${simFilter}
+    `);
+
+    // Step 3: Unique visitors who fired the 'steam_click' event
+    const step3Row = await getAsync(`
+      SELECT COUNT(DISTINCT visitor_id) as count
+      FROM events WHERE event_type = 'steam_click' ${simFilter}
+    `);
+
+    const s1 = step1Row.count || 0;
+    const s2 = Math.min(s1, step2Row.count || 0);
+    const s3 = Math.min(s2, step3Row.count || 0);
+
+    // Drop-off = % of visitors from previous step who did NOT proceed
+    const drop12 = s1 > 0 ? Number((((s1 - s2) / s1) * 100).toFixed(1)) : 0;
+    const drop23 = s2 > 0 ? Number((((s2 - s3) / s2) * 100).toFixed(1)) : 0;
+
+    res.json({
+      funnel: [
+        {
+          stage: '1. Site Visit',
+          description: 'Unique visitors who arrived at any page',
+          count: s1,
+          pctOfTotal: 100,
+          dropOffToNext: drop12
+        },
+        {
+          stage: '2. Game Opened',
+          description: 'Visitors who opened a game dossier modal',
+          count: s2,
+          pctOfTotal: s1 > 0 ? Number(((s2 / s1) * 100).toFixed(1)) : 0,
+          dropOffToNext: drop23
+        },
+        {
+          stage: '3. Steam Click',
+          description: 'Visitors who clicked "View on Steam"',
+          count: s3,
+          pctOfTotal: s1 > 0 ? Number(((s3 / s1) * 100).toFixed(1)) : 0,
+          dropOffToNext: 0
+        }
+      ]
+    });
+  } catch (err) {
+    console.error('Steam funnel error:', err);
+    res.status(500).json({ error: 'Failed to compute Steam funnel.' });
+  }
+});
+
+/**
+ * GET /api/analytics/games/steam
+ * Returns per-game stats: game opens, Steam clicks, and
+ * click-through rate (CTR = steam_clicks / game_opens * 100).
+ * Uses the game_id stored in the event metadata JSON.
+ */
+router.get('/games/steam', requireAuth(['admin', 'editor']), async (req, res) => {
+  try {
+    const includeSimulated = req.query.include_simulated === 'true';
+    const simFilter = includeSimulated ? '' : 'AND (e.is_simulated = 0 OR e.is_simulated IS NULL)';
+
+    // Count unique visitors who opened each game
+    const opens = await allAsync(`
+      SELECT
+        JSON_EXTRACT(e.metadata, '$.game_id') as game_id,
+        COUNT(DISTINCT e.visitor_id)           as unique_opens
+      FROM events e
+      WHERE e.event_type = 'game_opened' ${simFilter}
+        AND JSON_EXTRACT(e.metadata, '$.game_id') IS NOT NULL
+      GROUP BY JSON_EXTRACT(e.metadata, '$.game_id')
+    `);
+
+    // Count unique visitors who clicked Steam for each game
+    const clicks = await allAsync(`
+      SELECT
+        JSON_EXTRACT(e.metadata, '$.game_id') as game_id,
+        COUNT(DISTINCT e.visitor_id)           as unique_clicks
+      FROM events e
+      WHERE e.event_type = 'steam_click' ${simFilter}
+        AND JSON_EXTRACT(e.metadata, '$.game_id') IS NOT NULL
+      GROUP BY JSON_EXTRACT(e.metadata, '$.game_id')
+    `);
+
+    // Get game titles for display
+    const games = await allAsync(`SELECT id, title FROM games`);
+    const gameMap = {};
+    games.forEach(g => { gameMap[g.id] = g.title; });
+
+    // Merge opens + clicks into one result per game
+    const clickMap = {};
+    clicks.forEach(c => { clickMap[String(c.game_id)] = c.unique_clicks; });
+
+    const result = opens.map(o => {
+      const gid = String(o.game_id);
+      const openCount = o.unique_opens || 0;
+      const clickCount = clickMap[gid] || 0;
+      const ctr = openCount > 0 ? Number(((clickCount / openCount) * 100).toFixed(1)) : 0;
+      return {
+        game_id: o.game_id,
+        title: gameMap[o.game_id] || `Game #${o.game_id}`,
+        unique_opens: openCount,
+        steam_clicks: clickCount,
+        ctr_pct: ctr // click-through rate as a percentage
+      };
+    });
+
+    // Sort by CTR descending (best performers first)
+    result.sort((a, b) => b.ctr_pct - a.ctr_pct);
+
+    res.json({ games: result });
+  } catch (err) {
+    console.error('Game steam stats error:', err);
+    res.status(500).json({ error: 'Failed to compute per-game Steam stats.' });
+  }
+});
+
+/**
+ * POST /api/analytics/simulate/steam
+ * Generates fake visitors for the Steam funnel demo.
+ * ~200 visitors, ~60% open a game, ~25% of those click Steam.
+ * Data is marked is_simulated=1 so it can be cleared.
+ */
+router.post('/simulate/steam', requireAuth(['admin', 'editor']), async (req, res) => {
+  try {
+    // Fetch real game IDs from DB so we reference real games
+    const games = await allAsync(`SELECT id FROM games LIMIT 6`);
+    if (games.length === 0) return res.status(400).json({ error: 'No games in DB to simulate against.' });
+
+    const count = 200;
+    let eventsCreated = 0;
+
+    for (let i = 0; i < count; i++) {
+      const visitorId = 'sim_steam_' + Math.random().toString(36).substring(2, 10);
+      const sessionId = 'ses_' + Math.random().toString(36).substring(2, 9);
+      const pastMs = Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000);
+      const ts = new Date(Date.now() - pastMs).toISOString();
+      const device = ['desktop', 'desktop', 'mobile', 'tablet'][Math.floor(Math.random() * 4)];
+      const browser = ['Chrome', 'Firefox', 'Safari', 'Edge'][Math.floor(Math.random() * 4)];
+
+      // All 200 visitors get a site_visit page_view
+      await runAsync(`
+        INSERT INTO events (visitor_id, session_id, event_type, page_url, device_type, browser, screen_res, timestamp, metadata, is_simulated)
+        VALUES (?, ?, 'page_view', '/', ?, ?, '1920x1080', ?, ?, 1)
+      `, [visitorId, sessionId, device, browser, ts, JSON.stringify({ simulated: true })]);
+      eventsCreated++;
+
+      // ~60% open a game
+      if (Math.random() < 0.60) {
+        const game = games[Math.floor(Math.random() * games.length)];
+        const variant = Math.random() < 0.5 ? 'A' : 'B';
+
+        await runAsync(`
+          INSERT INTO events (visitor_id, session_id, event_type, page_url, device_type, browser, screen_res, timestamp, metadata, is_simulated)
+          VALUES (?, ?, 'game_opened', '/games', ?, ?, '1920x1080', ?, ?, 1)
+        `, [visitorId, sessionId, device, browser, ts, JSON.stringify({ game_id: game.id, variant, simulated: true })]);
+        eventsCreated++;
+
+        // ~25% of game openers click Steam (B variant gets a slight boost to show difference)
+        const steamProb = variant === 'B' ? 0.32 : 0.20;
+        if (Math.random() < steamProb) {
+          await runAsync(`
+            INSERT INTO events (visitor_id, session_id, event_type, page_url, device_type, browser, screen_res, timestamp, metadata, is_simulated)
+            VALUES (?, ?, 'steam_click', '/games', ?, ?, '1920x1080', ?, ?, 1)
+          `, [visitorId, sessionId, device, browser, ts, JSON.stringify({ game_id: game.id, variant, simulated: true })]);
+          eventsCreated++;
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Simulated ${count} Steam funnel visitors with ${eventsCreated} events (is_simulated=1).`,
+      eventsCreated
+    });
+  } catch (err) {
+    console.error('Steam simulate error:', err);
+    res.status(500).json({ error: 'Failed to simulate Steam funnel traffic.' });
+  }
+});
+
 module.exports = router;

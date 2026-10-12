@@ -81,7 +81,14 @@ export const analyticsAPI = {
   getFunnel: (includeSimulated = false) => api.get('/analytics/funnel', { params: { include_simulated: includeSimulated } }),
   getRealtimeStream: (includeSimulated = false) => api.get('/analytics/realtime-stream', { params: { include_simulated: includeSimulated } }),
   simulateTraffic: (count = 25) => api.post('/analytics/simulate', { count }),
-  clearSimulatedTraffic: () => api.delete('/analytics/simulated')
+  clearSimulatedTraffic: () => api.delete('/analytics/simulated'),
+
+  // Feature 1: Steam Tracking funnel & per-game stats
+  getSteamFunnel: (includeSimulated = false) =>
+    api.get('/analytics/funnel/steam', { params: { include_simulated: includeSimulated } }),
+  getGamesSteamStats: (includeSimulated = false) =>
+    api.get('/analytics/games/steam', { params: { include_simulated: includeSimulated } }),
+  simulateSteamTraffic: () => api.post('/analytics/simulate/steam')
 };
 
 export const abAPI = {
@@ -90,7 +97,12 @@ export const abAPI = {
   getExperiments: (includeSimulated = false) => api.get('/ab/experiments', { params: { include_simulated: includeSimulated } }),
   createExperiment: (data) => api.post('/ab/experiments', data),
   updateStatus: (id, status, winnerVariant) => api.put(`/ab/experiments/${id}/status`, { status, winner_variant: winnerVariant }),
-  deleteExperiment: (id) => api.delete(`/ab/experiments/${id}`)
+  deleteExperiment: (id) => api.delete(`/ab/experiments/${id}`),
+
+  // Feature 2: Public variant assignment (no auth needed)
+  getPublicAssignment: (expKey, visitorId) =>
+    api.get(`/ab/assign/${expKey}`, { params: { visitorId } }),
+  simulateGameCardTraffic: () => api.post('/ab/simulate/game-card')
 };
 
 export const pilotAPI = {
